@@ -1,0 +1,173 @@
+---
+title: "MXB344-Assignment 1_SOAP"
+author: "Kayathri Angel"
+date: "2025-05-03"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(viridis)
+library(hrbrthemes)
+library(tidyverse)
+```
+
+
+### Summary of Scenerio
+This technical analysis report was requested to investigate and assess the company's workplace safety practices. The overarching goal of the report is to aid upper management in evaluating current safety protocols and guiding evidence-based reforms as the company responds to this crisis.
+
+### Research Questions
+The key questions driving this analysis are: which safety regime is most effective in reducing workplace injuries, whether employee experience has a greater influence on injury rates compared to safety protocols, and whether factors such as annual bonuses or formal qualifications (e.g., safety training or university degrees) significantly affect injury outcomes.
+
+These questions have been reformulated into statistical research objectives to guide the analysis and will be addressed sequentially, followed by actionable recommendations:
+
+1. Which of the four safety regimes demonstrates the strongest performance in preventing workplace injuries, and there be recommended as an international safety standard protocol for the company?
+
+2. Is there evidence to support that industry experience performs better in injury prevention than safety regime?
+
+3.Are there statistically significant relationships between the number of injuries and the proportion of employees who received a bonus?
+
+4. Are there statistically significant relationships between the number of injuries and the proportion of employees who received external safety training or a university degree?
+
+### Summary of available data
+
+The dataset analyzed in this report comprises 72 records, each representing a group of workers observed over the past 12 months of operations. The variables included are as follows:
+
+- Record ID: Unique identifier for each worker group.
+- Injuries: Total number of injury incidents reported for the group.
+- Safety Regime: Categorization of the safety protocol adopted by the group (Levels 1 to 4).
+- Hours Worked: Cumulative number of hours worked by the group over the reporting period.
+- Experience Level: Average level of industry experience among workers (Levels 1 to 4).
+- Bonus: Proportion of workers in the group who received an annual bonus.
+- Training: Proportion of workers who completed formal external safety training.
+- University Education: Proportion of workers with at least one university degree.
+
+These variables were selected for their potential influence on injury rates and provides the basis for model development in how different workplace factors may contribute to safety outcomes.
+
+### Modelling Approach and Justification
+
+In modelling count data, the initial approach involved a Poisson Regression model, which accounts for time exposure by incorporating total hours worked. This effectively normalises injury counts into incident rates (i.e., number of injuries per total hours worked), providing a fair comparison across groups of differing work durations.
+
+Prior to model fitting, a stepwise selection procedure was used to identify the most statistically significant combination of predictor variables. Once the model was fitted, it underwent a series of goodness-of-fit and diagnostic tests to evaluate how well it aligned with the underlying data.
+
+If these assessments indicated poor fit, alternative modelling strategies were considered. This iterative approach ensured that the final model not only included relevant variables but also provided a statistically sound and interpretable basis for decision-making.
+
+Moreover, the model also looked at how certain factors combine to affect injury outcomes. For example, the effect of training on reducing (or increasing) injuries changes depending on the safety regime. These kinds of interactions reveal deeper insights that wouldn’t be visible when looking at each main factor alone (i.e. safety, experience, bonus etc.).
+
+### Validity of model and model results
+
+The final model has undergone rigorous testing to ensure its reliability in explaining workplace injury patterns. It was carefully selected based on its ability to fit the data well and reflect real-world variations in risk. Unlike simpler models, it adjusts for differences in work hours and better accounts for natural variability in injury counts. Diagnostic checks confirm that the model provides a credible and stable basis for drawing insights and making recommendations.
+
+The final statistical model selected provides a much better fit to the injury data than the initial model. It better captures differences in injury rates across worker groups, especially when dealing with unusual or inconsistent data patterns. This improved model also gives more realistic estimates by accounting for the natural variability in workplace incidents.
+
+When tested, the model's performance showed that it captured injury patterns more accurately, with only one minor outlier that didn't affect the overall conclusions.
+The model's results show that Safety Regime 3 stands out as the most effective in reducing workplace injuries. However, this is challenged by the effectiveness of the safety regime in place depending on prior training. The findings suggest that workers with prior training under Safety Regime 3 may be more injury-prone than workers in other Safety Regimes. However, some caution regarding this interpretation is necessary as this group may lack the sample size to warrant such conclusions.     
+
+Additionally, the most experienced workers tend to have fewer injuries, though this effect is only marginally evident. Other factors, such as bonus schemes or formal qualifications, showed little influence on injury rates.
+
+### Answers to research questions and recommendations
+
+```{r Visualisation 1}
+data <- read.csv("injury.csv", header = TRUE)
+
+p <- ggplot( data, aes( x = Hours,
+    y = log(Injuries + 1),
+    color = as.factor(Safety),
+    text = paste("Injuries:", Injuries,
+                 "<br>Experience:", Experience,
+                 "<br>Safety:", Safety)
+  )) +
+  guides( color = guide_legend(title = "Safety Regime")) +
+  geom_point(size = 3, alpha = 0.7) +
+  scale_color_viridis_d(option = "D")  +
+  labs(x = "Hours Worked", y = "Log(Number of Injuries + 1)")
+
+ggplotly(p, tooltip = "text")
+```
+
+1. Which of the four safety regimes demonstrates the strongest performance in preventing workplace injuries, and there be recommended as an international safety standard protocol for the company?
+
+Among all safety regimes, Safety Regime 3 shows the strongest performance in reducing workplace injuries. From the model results, Safety Regime 3 is associated with a 76.4% decrease in the expected count of injuries compared to the baseline Safety regime 1, holding all other variables constant. Although it records the highest total number of injuries, this is due to the higher number of hours worked by groups under this regime. When adjusted for hours worked — that is, considering the injury rate per hour — Safety Regime 3 consistently has the lowest rate of incidents. This rate-based approach ensures a fair comparison across groups with varying work durations. Hence, the company should consider adopting Safety Regime 3 as the standard protocol across all operational sites. However, further investigation between Safety Regime 3 and other variables that have potential influence is required to assess it's overall effectiveness within a group. 
+
+The model highlighted a statistically significant interaction between Safety Regime 3 and training which can present a notable challenge to this recommendation. The influence that an employee has recieved external training and subsequently operated under a Safety Regime 3 protocol indicated a 779% increase in the expected number of injuries. Indicating a potential misalignment or learning curve associated with the new protocol. It is recommended that the company provides extra training, through targeted onboarding or supplementary training, for this proportion of employees during the implementation process of Safety Regime 3. This approach aims to bridge the gap between prior training and current safety procedures, ultimately helping to reduce the expected number of incidents associated with the interaction effect.
+
+
+```{r Visualisation 2}
+data <- read.csv("injury.csv", header = TRUE)
+
+p <- ggplot( data, aes( x = Hours,
+    y = Injuries,
+    color = as.factor(Experience),
+    text = paste("Injuries:", Injuries,
+                 "<br>Experience:", Experience,
+                 "<br>Safety:", Safety)
+  )) +
+  guides( color = guide_legend(title = "Experience Level")) +
+  geom_point(size = 3, alpha = 0.7) +
+  #facet_wrap(~ Safety) +
+  scale_color_viridis_d(option = "D")  +
+  labs(x = "Hours Worked", y = "Number of Injuries")
+
+ggplotly(p, tooltip = "text")
+```
+
+2. Is there evidence to support that industry experience performs better in injury prevention than safety regime?
+
+There is insufficient evidence to support that experience is a stronger predictor of injury prevention than safety regime. Experience level 4 is shown to have the relatively signifcant impact on reduced number of injuries with an estimated 74.2% decrease in the expected number of injuries compared to the baseline Experience Level 1, while holding other variables constant. However, the implicit trend that as the groups experience level increases, the number of incidents decrease does not hold. 
+
+Experience Level 2 shows a moderate reduction in expected injuries with a 52.5% decrease relative to the baseline. Whereas Experience Level 3 has a minimal effect with a 5.8% reduction, which is nearly comparable to Experience Level 1. Overall, these mixed results imply that experience alone does not consistently reduce injury rates across all levels and therefore, may not be a stronger predictor than safety regime interventions.
+
+Thus, it is recommended that the company focuses on refining Safety Regime 3 to ensure its effectiveness across all groups as a strategy to support injury prevention. The company could leverage the experience of this particular group by gathering feedback through focus group sessions to help revise and enhance safety protocols.
+
+
+```{r Visualisation 3}
+data_long <- data %>%
+  pivot_longer(cols = c(bonus, training, university),
+               names_to = "Variable",
+               values_to = "Value")
+
+# Base plot with faceting
+p <- ggplot(data_long, aes(
+    x = Hours,
+    y = Injuries,
+    color = Value,
+    text = paste("Injuries:", Injuries,
+                 "<br>Experience:", Experience,
+                 "<br>Safety:", Safety,
+                 "<br>", Variable, ":", Value))) +
+  geom_point(alpha = 0.7) +
+  facet_wrap(~ Variable, ncol = 1) +
+  scale_colour_gradientn(colours = viridis(100), limits = c(0,1)) +
+  scale_size_continuous(limits = c(0,1)) +
+  theme_bw() +
+  labs(x = "Hours Worked",
+       y = "Number of Injuries",
+       color = "Proportion",
+       size = "Proportion")
+
+# Convert to interactive plot
+ggplotly(p, tooltip = "text", height = 1000)
+```
+
+
+3.Are there statistically significant relationships between the number of injuries and the proportion of employees who received a bonus?
+
+Based on the results of the model, there is evidence to suggest that there is no statistically significant relationship between the number of injuries and the proportion of employees who received a bonus. Based on the model results, the predictor variable ‘bonus’ has a p-value of 0.8872, which is well above the standard significance threshold (typically 0.05). This suggests that any observed variation in injury count is unlikely to be explained by bonus distribution, and we cannot conclude that bonuses have a meaningful impact on injury rates in this dataset. 
+
+To understand this intuitively using the visualisation, the data points show no clear trend or pattern in colour intensity (representing bonus proportion) relative to the number of injuries. The colours, of varying intesity, are spread across both low and high injury counts. This reinforces the lack of an observable relationship between bonus allocation and injury outcomes.
+
+4. Are there statistically significant relationships between the number of injuries and the proportion of employees who received external safety training or a university degree?
+
+Similarly, external qualification variables such as training and university education also show no statistically significant association with injury counts. This is reflected in the visualisation, where no discernable pattern in colour (representing the proportion of employees who received training) is observed relative to the number of injuries. The distribution of colours across both low and high injury counts suggests that training alone does not explain the variability in incident rates.
+
+These results suggest that these predictors do not contribute meaningfully to explaining variability in incident rates within the current model. However, it is still within the realm of reason to consider how the training and university predictors influence other variables and effect the group's number of injuries. As highlighted previously there is a relationship between training and Safety Regime 3 that needs to be investigated.
+
+Still, while such conclusions can be made, it is important to note that this analysis was conducted on a relatively small dataset, where minor variations may be amplified, and statistical power is limited. Although the model did not highlight any potential influence from extreme values on the response, the possibility of outlier-driven effects or unobserved confounders cannot be fully ruled out. These limitations should be considered when interpreting the findings and planning subsequent actions.

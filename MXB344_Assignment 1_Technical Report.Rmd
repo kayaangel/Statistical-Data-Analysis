@@ -1,0 +1,449 @@
+---
+title: "MXB344 Assignment 1"
+author: "Kayathri Angel"
+date: "2025-04-30"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Load Packages, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(MASS)
+library(ggpubr)
+library(DHARMa)
+library(AER)
+library(ggplot2)
+library(corrplot)
+library(gridExtra)
+library(pscl)
+```
+
+## 1. Introduction
+
+This technical analysis report was requested by the CEO of EVEE Global Industrial Manufacturing Company to investigate and assess the company’s workplace safety practices. The need for this analysis arises in light of a recent serious workplace incident in South America, which has come under close scrutiny by the media. The overarching goal in this technical analysis is to aid upper management in evaluating current safety protocols and guiding evidence-based reforms as the company responds to this crisis.
+
+#### 1.1 Research Questions
+
+1.  Which of the four safety regimes demonstrates the strongest performance in preventing workplace injuries, and there be recommended as an international safety standard protocol for the company?
+
+2.  Is there evidence to support that industry experience performs better in injury preventation than safety regime?
+
+3.  Is there a statistically significant relationship between the number of injuries and the proportion of employees who received an annual bonus?
+
+4.  Is there a statistically significant relationship between the number of injuries and the proportion of employees who have completed external safety training or hold a university degree?
+
+#### 1.2 Summary of Available Data
+
+```{r Load Data}
+data <- read.csv("injury.csv", header = TRUE)
+head(data)
+```
+
+The workplace injury dataset used in this technical analysis comprises 72 observation entries across 8 variables, collected over the past 12 months of company operations. Key variables include record_id, safety regime, experience level, total hours worked, and proportion of employees receiving a bonus, among others. These variables are hypothesized to influence or be associated with the number of reported workplace injuries and form the basis for exploratory and statistical modeling in this report.
+
+The available dataset has the following fields:
+
+-   Record_id: Identifier of each entity in a data set which is categorized as a group of workers
+-   Injuries: Number of injury incidents reported for the group
+-   Safety: The levels of Safety regimes adopted by the group (levels: 1, 2, 3, or 4)
+-   Hours: The total number of hours worked by group
+-   Experience: The level of experience for the group (levels: 1, 2, 3, or 4)
+-   Bonus: The proportion of group who received an annual bonus last year
+-   Training: The proportion of group who have completed external safety training
+-   University - proportion of group who have at least one university degree
+
+## 2. Data Processing
+
+```{r Data Processing 1}
+## Remove the record_id column
+new_df <- subset(data, select = -c(record_id))
+head(new_df)
+```
+
+```{r Data Processing 2}
+## Find for missing values
+print("Position of missing values ")
+colSums(is.na(new_df))
+summary(new_df$bonus)
+# Delete the missing value row
+new_df <- na.omit(new_df)
+```
+
+In the preliminary analysis of the data, a missing value was found in the 'Bonus' column in the data. Initially, mean substitution was applied as a reasonable estimate, assuming that the missing value was a random occurrence and the variable followed a roughly normal distribution. This decision to utilize imputation was made in consideration to prioritize retaining the complete observations for model reliability, despite the presence of 1 missing value. However, further analysis of the distribution of 'bonus' was asymmetrical and thus revealed that the normality assumption does not hold. Therefore, to avoid introducing bias and warping the relationship between 'Bonus' and other variables, the final decision was to delete the missing value row. This maintains model reliability and integrity.
+
+```{r Data Processing 3}
+# Transform Safety and Experience as factor variables
+new_df$Safety <- factor(new_df$Safety,levels = 1:4)
+new_df$Experience <- factor(new_df$Experience,levels = 1:4)
+```
+
+```{r Data Processing 4}
+summary(new_df)
+```
+
+Some basic exploratory analysis, an anomaly is found in the 'University' variable where the maximum value of 1.05 suggests a proportion greater than 100%, which is not logically possible for this variable. This indicates a likely data entry or calculation error and cannot be reliably corrected. As such, to maintain data integrity and model reliability, the row with this data entry should be removed.
+
+```{r Data Processing 5}
+## Remove the row with the data anomaly
+new_df <- subset(new_df, university <= 1.0)
+summary(new_df)
+```
+
+With the data anomaly removed, this final data summary table shows that the is a total of 70 records of incidents across the company. The mean number of incidents is approximately 70 incidents per record, with a range from 0 to 491. This may suggest a that there is a right-skew in the distribution of the number of incidents. With more values in the lower half of the mean and most extreme values on the higher end. This skewness may have implications for subsequent modeling and will be considered during model selection.
+
+There is a slight imbalance in experience levels, with different number of records from 20 or 16 records at each level. The same pattern is observed in the number of safety factor levels where one is less represented than the rest. This imbalance should be taken into account when assessing the regression model's performance. The result from this could lead to greater uncertainty in coefficient estimates with larger standard errors and thus, less stable predictions for underrepresented groups.
+
+## 3. Exploratory data analysis (EDA)
+
+```{r Data Exploration 1}
+M<-cor(new_df[,c(1, 4:7)])
+corrplot(M, method="number")
+```
+
+This correlation matrix is used to assess for multicollinearity in the data before building the regression model. There is a strong correlation between injuries and hours, which intuitively makes sense as the longer workers work in the factory, the higher their exposure is to potential incidents. However, Hours will be used as an exposure variable (offset term) in the Poisson regression model to model injury rates rather than raw counts. This approach appropriately adjusts for exposure time and does not pose multicollinearity issues in the model. The other variables (i.e., bonus, training, university) have very little correlation among them and with the response variable. However, these findings are based on linear correlation and do not account for potential collinearity involving categorical predictors. Therefore, it remains important to assess whether the multicollinearity assumption holds when including the non-continuous variables, such as safety and experience, in the regression model.
+
+```{r Data Exploration 2}
+p1 <- ggplot(new_df, aes(x = Hours, y = Injuries)) +
+  geom_point(color = "steelblue") #+
+  #labs(x = "Injuries", y = "Frequency")
+p2 <- ggplot(new_df, aes(x = log(Injuries + 1))) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  labs(x = "Log(Injuries + 1)", y = "Frequency")
+p3 <- ggplot(new_df, aes(x = Safety, y = log((Injuries + 1) / Hours))) + 
+  geom_boxplot(fill = "steelblue") + labs(x = "Safety Regime", y = "log(injuries/hour)")
+p4 <- ggplot(new_df, aes(x = Experience, y = log((Injuries + 1) / Hours))) + 
+  geom_boxplot(fill = "steelblue") + labs(x = "Experience Level", y = "log(injuries/hour)")
+p5 <- ggplot(data = new_df,
+       mapping = aes(
+         x = Safety,
+         y = log((Injuries + 1) / Hours),
+         fill = Experience
+       )) +
+  geom_boxplot() +
+  labs(x = "Safety Regime",y = "Log number of Injuries/hour",fill = "Experience")
+
+top <- arrangeGrob(p1, p2, p3, p4, ncol = 2)
+
+# Combine with p5 spanning full width
+grid.arrange(top, p5, ncol = 1, heights = c(2, 2)) 
+```
+
+Since the goal is to model count data, this is the number of incidents relative to some exposure that is hours, the assumption here is that count data follows a Poisson distribution. Accordingly, a log link function is used, which is the canonical link for Poisson regression. Applying this transformation during exploratory data analysis uncovers any potential linear relationships between the predictor variables the log of the incident rate, rather than the raw count of incidents.
+
+The log of the number of incidents per hour by safety regime shows that, on average, safety regime 2 has the lowest number of incidents. Generally, there is a notable decreasing trend in the log of the number of incidents per hour by experience level.Putting these 2 charts together to investigate the collective effects that the safety regime and experience level have on the log number of incidents per hour, two initial conclusions can be made.
+
+Overall, safety regime 2 seems to have the best injury prevention performance. It consistently has the lowest mean number of incidents across all experience levels. However, this observation should be interpreted with caution, as it may be influenced by a smaller number of observations within certain safety and experience level combinations.
+
+Additionally, the relatively equal distribution by safety regime changes when sliced by experience level. There is a clear trend in the number of incidents as decreasing by as experience increases, suggesting that experience may have a greater influence on incident outcomes than safety regime alone. This is within expectation, as more experienced workers are typically less prone to accidents. However, there is still notable variation in the spread and range of incident rates within each experience level across safety regimes, indicating that safety practices may still play a role in mitigating risk.
+
+```{r Data Exploration 3}
+p1 <- ggplot(data = new_df,
+       mapping = aes(
+         x = bonus,
+         y = log((Injuries + 1) / Hours)
+       )) +
+  geom_point(aes(color = Safety)) +
+  geom_smooth(aes(color = Safety, fill = Safety), method = "lm", se = FALSE) +
+  labs(
+    x = "Bonus",
+    y = "Log number of Injuries/hour",
+    color = "Safety"
+  )
+
+p2 <- ggplot(data = new_df,
+       mapping = aes(
+         x = bonus,
+         y = log((Injuries + 1) / Hours)
+       )) +
+  geom_point(aes(color = Experience)) +
+  geom_smooth(aes(color = Experience, fill = Experience), method = "lm", se = FALSE) +
+  labs(
+    x = "Bonus",
+    y = "Log number of Injuries/hour",
+    color = "Experience"
+  )
+
+p3 <- ggplot(data = new_df,
+       mapping = aes(
+         x = training,
+         y = log((Injuries + 1) / Hours)
+       )) +
+  geom_point(aes(color = Safety)) +
+  geom_smooth(aes(color = Safety, fill = Safety), method = "lm", se = FALSE) +
+  labs(
+    x = "training",
+    y = "Log number of Injuries/hour",
+    color = "Safety"
+  )
+
+p4 <- ggplot(data = new_df,
+       mapping = aes(
+         x = training,
+         y = log((Injuries + 1) / Hours)
+       )) +
+  geom_point(aes(color = Experience)) +
+  geom_smooth(aes(color = Experience, fill = Experience), method = "lm", se = FALSE) +
+  labs(
+    x = "training",
+    y = "Log number of Injuries/hour",
+    color = "Experience"
+  )
+
+p5 <- ggplot(data = new_df,
+       mapping = aes(
+         x = university,
+         y = log((Injuries + 1) / Hours)
+       )) +
+  geom_point(aes(color = Safety)) +
+  geom_smooth(aes(color = Safety, fill = Safety), method = "lm", se = FALSE) +
+  labs(
+    x = "university",
+    y = "Log number of Injuries/hour",
+    color = "Safety"
+  )
+
+p6 <- ggplot(data = new_df,
+       mapping = aes(
+         x = university,
+         y = log((Injuries + 1) / Hours)
+       )) +
+  geom_point(aes(color = Experience)) +
+  geom_smooth(aes(color = Experience, fill = Experience), method = "lm", se = FALSE) +
+  labs(
+    x = "university",
+    y = "Log number of Injuries/hour",
+    color = "Experience"
+  )
+
+grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 2)
+```
+
+The plotted trends of log incident rates against bonus and training differ across safety regimes. The presence of non-parallel lines and intersecting slopes suggests a potential interaction effect between safety regime and these continuous predictors. This provides justification for including interaction terms in the Poisson regression model to test whether the relationship between bonus/training and injury rate varies by safety regime.
+
+In contrast, the relationship between the other continuous predictors and injury rates across safety and experience levels, show no strong visual indication of interaction. The trend lines are relatively parallel, suggesting the effect of these predictors does not vary substantially across groups. Therefore, unless supported by a larger sample or formal testing, additional interaction terms involving these variables may be redundant.
+
+## 4. Modelling approach and justification
+
+#### 4.1 Model Specification: Initial Poisson Generalised Linear Model
+
+Initially, a Poisson GLM is chosen to model the count data (the number of incidents) with safety, experience, bonus, training, university as covariates. The count of the number of incidents, $Y$, is assumed to follow a Poisson Distribution, where the probability of observing y events can be expressed as:
+
+$$p\left( Y = y | {\lambda} \right) = \frac{{\lambda^{y}exp(-{\lambda})}}{y!},  \text{for } y = 0,1,...$$
+
+Where ${\lambda}$ represents the expected number of incidents given the total hours worked by group. To study the relative change in the mean counts of injuries associated with each one-unit difference in the predictor variables, a log link function is used in the Poisson GLM. Thus, the association/dependence of ${\lambda}_{i}$ on covariates is modelled as:
+
+$$log({\lambda}_{i}) = \beta_{0} + \beta_{1}x_{1i} + \beta_{2}x_{2i} + ...$$ $$ {\lambda}_{i} = exp(\beta_{0} + \beta_{1}x_{1i} + \beta_{2}x_{2i} + ...) $$
+
+Therefore the expected number of injuries, which depends on the population size and time frame can be formulated as such, with a canonical link function:
+
+$$E[Y_{i}]  = \mu_{i} = n_{i}{\lambda}_{i} = n_{i}exp(x_{i}\beta), \text{ } Y_{i} \sim Poi(\mu_{i})$$
+
+Where $n_{i}$ is the total hours worked for the $i$th group and $\lambda_{i} = exp(x_{i}\beta)$ is the injury rate per hour.
+
+This will be later modelled as a Generalised Linear Model (GLM): $$g(\mu_{i})  =log{\mu_{i}} = logn_{i} + \beta_{0} + \beta_{1}x_{1i} + \beta_{2}x_{2i} + ... $$
+
+#### 4.2 Feature Selection using Stepwise Regression
+
+To identify the most influential independent variables in a Poisson regression model, both backward and forward stepwise regession were performed using the Akaike Information Criterion (AIC) as the selection metric. A full model was specified to include all main effects (Safety, Experience, bonus, training, university) and all possible two-way interaction terms. This served as the upper bound for backward selection. For forward selection, a null model was defined containing only the offset term for log hours worked, and ecluding the raw Hours variable to avoid redundancy with the offset. The scope for forward selection allowed all main effects and their pairwise interactions (up to second-order terms). Ultimately, the goal is to arrive at a more parsimonious model. AIC was favoured over BIC in this case for its less stringent penalty term which permits a slightly more complex model. This can minimize the risk of underfitting, which is a priority given the small sample size.
+
+```{r Modelling Approach 1}
+
+#Full model with all possible interactions for backwards selection:
+full_interaction_model <- glm(data = new_df,
+    formula = Injuries ~ offset(log(Hours)) + Safety + Experience + bonus + 
+      training + university + Safety*Experience + Safety*university + 
+      Safety*training + Safety*bonus + Experience*university + 
+      Experience*training + Experience*bonus, family = poisson(link = "log"))
+
+#Model with no variables present for forwards selection:
+null_model <- glm(data = new_df, formula = Injuries ~ offset(log(Hours)) + . 
+                  - Hours, family = poisson(link = "log"))
+
+#Perform backward and forward selection:
+backward_sel_model <- stepAIC(
+  full_interaction_model,direction = "backward",trace = 0)
+forward_sel_model <- stepAIC(
+  null_model,
+  scope = . ~ .^2,
+  direction = "forward",
+  trace = 0) 
+```
+
+```{r Modelling Approach 2}
+formula(backward_sel_model)
+```
+
+```{r Modelling Approach 3}
+formula(forward_sel_model)
+```
+
+```{r Modelling Approach 4}
+AIC(backward_sel_model)
+```
+
+```{r Modelling Approach 5}
+AIC(forward_sel_model)
+```
+
+Based on the results of the stepwise selection procedure, the final set of features for the Poisson regression model was obtained from the forward selection path. This model, having the lowest AIC, was selected as the final GLM for testing and evaluation.
+
+Although these predictors were identified as the "best" features, other strategies, such as hypothesis testing or likelihood ratio tests, evaluate the significance of predictor variables using different metrics. So, while these variables are optimal within the scope of this selection strategy, there is a possibility for a much simpler model. Thus, a "better" model may exist with more comprehensive testing.
+
+#### 4.3 Model Diagnostics and Goodness-of-Fit
+
+Using the final set of selected features, a Poisson GLM was fitted and the resulting model output was examined to assess model fit. To evaluate goodness-of-fit, the model was evaluated using two different chi-square tests based on Pearson and deviance residuals. This provides insight into how well the model captures variation in the observed count data. Diagnostic plots were also used to help assess the goodness-of-fit and potential issues like non-linearity, heteroscedasticity, and influential points.
+
+```{r Modelling Approach 6}
+fit <- glm(Injuries ~ offset(log(Hours)) + Safety + Experience + 
+             bonus + training + university + Safety:training +
+             Experience:training  + Safety:Experience + 
+             Experience:bonus + Safety:university + bonus:training +
+             Experience:university + Safety:bonus, family = "poisson",
+           data = new_df)
+    
+summary(fit)
+```
+
+```{r}
+potential_outliers <- names(which(abs(residuals(fit)) > -qnorm(0.05/2)))
+residuals(fit)[potential_outliers]
+```
+
+```{r Modelling Approach 7}
+par(mfrow = c(2,2))
+plot(fit)
+```
+
+The first plot in this diagnostic set is the Residuals vs Fitted plot, which is used to check for systemic patterns in residuals. Ideally, the residuals should be scattered around zero with no obvious patterns. However,in this case, a noticeable clustering of residuals appears at higher fitted values. This suggests potential model mis-specification or non-linearity in the predictors, indicating that the model may not fully capture the trends in the data at higher predicted injury rates.
+
+The Normal Q-Q Residuals plot assesses whether the standardized deviance residuals are approximately normally distributed. While most points closely follow the line, there is noticeable deviation in the upper tail. This suggests departures from normality, particularly in the higher residuals, which may indicate the presence of outliers and overdispersion in the data.
+
+The Scale-Location Plot is used to check for homoscedasticity. The upward trend in the red line and uneven spread of the points suggests heteroscedasticity. This challenges the Poisson model’s key assumption that the variance is equal to its mean ($\lambda$).
+
+Finally, in the Residuals vs Leverage plot, influential observations are highlighted which are data points that can disproportionately affect the model’s coefficients. The points on the far right that that have large standardized residuals (outside the Cook's distance lines) could likely influence the model. Observation 19 consistently appears as an outlier across multiple diagnostic plots. This suggests that the model struggles to fit this point accurately, and its influence may compromise the overall model fit for other observations.
+
+```{r Modelling Approach 8}
+# Pearsons Residuals
+pr <- residuals(fit,"pearson")
+phi <- sum(pr^2)/df.residual(fit)
+round(c(phi,sqrt(phi)),4)
+
+# Deviation Residuals
+Nmp <- fit$df.residual
+phi_hat <- deviance(fit)/Nmp
+phi_hat > 1 + 3*sqrt(2/Nmp)
+```
+
+From these chi-squared tests, there is evidence to suggest a lack of fit in the poisson model due to overdispersion. The test results show that the actual covariance matrix for the observed data exceeds that for this Poisson model for $Y|X$. In particular, the Pearsons residuals test, $\phi$ is 17.934 which is larger than the expected value of 1. This estimate of the dispersion parameter, $\hat{\phi}$, exceeds the general rule of thumb, suggesting that the model underestimates variability in the data. Overall, these findings show that there is a possibility of more variability in the data than the poisson model could accurately capture. However, these tests still provide little guidance for determining appropriateness of model fit and more testing is required.
+
+```{r Modelling Approach 9}
+res = simulateResiduals(fit)
+plot(res)
+```
+
+To gain better insight into the residuals performance in the model, a simulation-based approach was used to generate scaled quantile residuals for the fitted GLM.In the Q-Q plot Residuals, a perfect model will have residuals that follow a uniform distribution. However, there are deviations from this line in both the upper and lower tails, suggesting that model is not capturing the underlying relationships in the data properly. Also, the deviation of the simulated quantiles from the expected uniform distribution is significant, as highlighted in red lines.
+
+In summary, these findings provide strong evidence of model misspecification, supporting the need for change in link function or an alternative modeling approach.
+
+## 5. Validity of model and modelling results
+
+The Poisson likelihood was initially chosen due to the count nature of the response variable. A quasi-Poisson model was next considered to address overdispersion by introducing a fixed dispersion parameter $\phi$, where $VAR[Y]=\phi\cdot\mu$. This adjustment scales the standard errors to reflect extra-Poisson variability but does not change the model’s $E[Y_{i}]$ or likelihood. After running the same tests in Model Diagnostics and Goodness-of-Fit, overdispersion still remained evident. As a result, the Negative Binomial model was explored as an alternative. Unlike the quasi-Poisson, the Negative Binomial dispersion parameter $\phi$ is estimated from the data using maximum likelihood. If $Y \sim NB(\mu,\alpha)$ then the $VAR[Y] = \mu+\frac{\mu^{2}}{\theta}$ in this model. This formulation allows for greater flexibility in modelling count data where the variance exceeds the mean.
+
+```{r Final Model 1}
+fitnb <- glm.nb(Injuries ~ offset(log(Hours)) + Safety + Experience + bonus +
+                  training + university + Safety:training + Experience:training +
+                  Safety:Experience + Experience:bonus + Safety:university +
+                  bonus:training + Experience:university + 
+                  Safety:bonus, link="log", data=new_df) 
+summary(fitnb)
+```
+```{r}
+potential_outliers <- names(which(abs(residuals(fitnb)) > -qnorm(0.05/2)))
+new_df[potential_outliers,]
+```
+
+```{r Final model 2, fig.pos='H'}
+par(mfrow=c(2,2))
+plot(fitnb)
+```
+
+In the Residuals vs. Fitted plot, the residuals around 0 show more randomness. The linearity assumption is not compromised here, although there is a slight dip towards the end in the higher predictor value range. This trend could be influenced by the outlier observation 19.
+
+The Normal Q-Q plot shows that the residuals generally follow a normal distribution. However, two residual outliers (Observation 10 and Observation 19) suggest that the model may not have captured these data points accurately. However, it's hard to say if this results from where the model's assumptions or perceived predictor-response relationships may fall short.
+
+The Scale-Location plot displays a relatively flat trend line, indicating that the assumption of constant variance (homoscedasticity) is reasonably met. Although some outliers exist, particularly at higher fitted values, there is no strong evidence of increasing residual spread. Overall, the model shows an improved fit.
+
+In the Residuals vs. Leverage plot, there are no influential observations by Cook’s Distance standards. While observation 19 shows up as a clear outlier in the other diagnostic plots, it is found to not have enough leverage to pull the model significantly. However, this does not entirely rule out its impact, especially with the small number of observations in the dataset.
+
+```{r Final Model 3}
+# Pearson Residuls
+pr <- residuals(fitnb,"pearson")
+phi <- sum(pr^2)/df.residual(fitnb)
+round(c(phi,sqrt(phi)),4)
+
+# Deviation Residuals
+Nmp <- fitnb$df.residual
+phi_hat <- deviance(fitnb)/Nmp
+phi_hat > 1 + 3*sqrt(2/Nmp)
+```
+
+While overdispersion remains with $\phi$ value at 1.87, it is substantially reduced compared to the Poisson model, suggesting that the Negative Binomial model offers a better fit to the data. Although the deviance residual test still flags overdispersion, the magnitude is more controlled, supporting the NB model as a more suitable alternative. Again, there is still little guidance determining appropriateness of model fit and more testing is required.
+
+```{r Final Model 4}
+resnb = simulateResiduals(fitnb)
+plot(resnb)
+```
+
+The Q-Q plot from the simulation-based residuals test also indicates improvement, with residuals showing minimal deviation from the expected uniform distribution. While slight deviations are observed in the upper and lower tails, they are not substantial enough to be flagged as significant. Unlike the earlier chi-squares test results, dispersion test (p-value = 0.76) and outlier test (p-value = 1) here confirms that the residuals are well-behaved, with no significant overdispersion or extreme values. In the residuals vs predicted plot, the absence of significant red quantile deviations supports that the model adequately accounts for the variance in the data. Although a single outlier (red asterisk) remains, it is isolated and not indicative of broader model misspecification.
+
+```{r Final Model 5}
+# Analysis the outlier observation
+new_df[which.min(resnb$scaledResiduals),]
+```
+
+```{r Final Model 6}
+xb <- predict(fitnb) 
+g <- cut(xb, breaks=quantile(xb,seq(0,100,10)/100))
+m <- tapply(new_df$Injuries, g, mean)
+v <- tapply(new_df$Injuries, g, var)
+plot(m, v, xlab="Mean", ylab="Variance", 
+     main="Mean-Variance Relationship")
+x <- seq(0.01, 300, length.out = 200)
+lines(x, x, lty="dotdash")
+lines(x, x*phi, lty="dashed")
+lines(x, x*(1+x/fitnb$theta))  # VAR[Y] = mu + mu^2/theta
+legend("topleft", lty=c("dotdash","dashed","solid"), 
+       legend=c("Poisson", "Q. Poisson","Neg. Binom."), inset=0.05)
+```
+
+This Mean-Variance Relationship plot supports the use of the Negative Binomial model over the Poisson or Quasi-Poisson alternatives, as it better captures the increasing variance with higher mean counts—a characteristic of overdispersed count data. However, the model still underestimates the variance for extreme values, particularly Observation 19. This point deviates significantly from the trend, suggesting it may reflect a valid but rare event that even the more flexible Negative Binomial model cannot fully account for.
+
+#### 5.3 Modelling results
+
+Overall,the goodness-of-fit tests and diagnostic plots confirmed the negative binomial as a much better fit compared to the Poisson model. Because the NB model accounts for additional variability in the data, it reflects that there’s more uncertainty in estimating the effect of each predictor. When comparing the standard errors of the coefficients in both NB model and Poisson model, the NB model has higher std. errors than the later. The Poisson model, by assuming variance = mean, tends to underestimate uncertainty, which can lead to overconfident (smaller) standard errors. Thus, although the wider confidence intervals reflect greater uncertainty in the parameter estimates, they can still be viewed as more statistically reliable than the potentially underestimated errors in the Poisson model.
+
+The diagnostic plots and DHARMa residuals indicate that the residuals were more normally distributed, variance patterns were better captured, and overdispersion was substantially reduced. Both diagnostics also identified a single minor outlier.
+
+In terms of model interpretation, Safety Regime 3 is associated with a significantly lower incident rate. Additionally, the interaction between Safety 3 and training is strongly significant, indicating that the effect of training may vary depending on the safety regime. While the most experienced group Experience level 4 also shows a marginally significant association with reduced incidents. Most other predictors and interactions were not statistically significant, indicating limited contribution to the model's predictive power.
+
+## 6. Recommendations
+
+Based on the analysis, Safety Regime 3 consistently demonstrates the lowest incident rate among all regimes. The final Negative Binomial model is associated with a coefficient of -1.444, indicating a substantial reduction in the log incident rate relative to the baseline group. This suggests that Safety Regime 3 may incorporate practices or policies that mitigate workplace injuries.
+
+Although this may be true, the statistically significant interaction between Safety Regime 3 and training (p-value = 0.000385) presents a challenge to this recommendation. Safety Regime 3 alone is associated with lower incident rates; however, the interaction term indicates that when an employee has received prior training and is then introduced to this regime, the effectiveness of the safety regime may diminish. This is supported by the positive coefficient estimate of 2.173.
+
+To address the is speculation that industry experience plays a more critical role than safety regimes in preventing workplace injuries, the results of this analysis provide inconclusive evidence to support that claim. While Experience Level 2 shows a moderate reduction in incidents (coefficient = -0.744), Experience Level 3 demonstrates a minimal effect (coefficient = -0.06), nearly aligning with the baseline. Notably, Experience Level 4 exhibits the greatest reduction in injury count (coefficient = -1.358), although its association is only marginally significant. These mixed findings suggest that while experience may contribute to safety, it is not uniformly predictive across all levels, and its impact should be interpreted with caution.
+
+The model indicates that there is no statistically significant relationship between the predictor bonus and the count of injuries (p-value = 0.8872). Similarly, external qualification variables such as training (p-value = 0.1708) and university education (p-value = 0.5309) also show no significant association with injury counts. These results suggest that these predictors do not contribute meaningfully to explaining variability in incident rates within the current model.
+
+## 7. Conclusion
+
+While the final Negative Binomial model successfully addressed overdispersion and improved model fit, several findings prompt further investigation. Notably, the interaction between Safety Regime 3 and Experience Level 2 yielded a moderately significant relationship (p-value = 0.0877) with a relatively high positive coefficient (0.799). This suggests that workers with intermediate experience under safety regime 3 may be at greater risk. Interestingly, this may overlap with the earlier identified significant interaction between Safety Regime 3 and training, raising the possibility that certain subgroups (i.e. trained and moderately experienced) of workers are disproportionately represented in injury cases. Closer scrutiny of these observations may be warranted to determine whether this result is driven by a particularly extreme observation not flagged by DHARMa residual diagnostics. This could help clarify whether the effect is true or as a result of a small, unbalanced sample.
+
+Moreover, while the model’s intercept is highly significant (p-value \< 2e-16), its practical interpretation is limited. The intercept corresponds to the log-incident rate when all covariates are at their reference levels, which may not be a realistic or meaningful baseline scenario. Its significance, therefore, reflects mathematical necessity rather than a meaningful statistical insight into predictor-response relationship. Hence, it should not be over-interpreted as a contributing factor to injury risk.
+
+In summary, while the final model provides valuable insights into the factors influencing injury rates—particularly the roles of safety regime and experience—some results raise new questions that warrant further exploration. Further data collection and subgroup analysis may help clarify whether observed interaction effects are genuine or driven by limited or unbalanced samples.
