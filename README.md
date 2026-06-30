@@ -20,10 +20,6 @@ Experience level, Hours worked, Bonus rate, Training completion, and University 
 - Rigorous model diagnostics and goodness-of-fit testing
 - Actionable recommendations based on statistical evidence
 
-### How to Run
-```R
-rmarkdown::render("analysis.Rmd")
-```
 ### Skills Demonstrated
 - Detected overdispersion in Poisson model (17.94x expected variance), and subsequently
   switched to Negative Binomial and validated improved fit
